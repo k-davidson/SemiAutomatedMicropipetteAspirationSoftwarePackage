@@ -1,0 +1,8 @@
+IMAG_EMULATOR = False
+
+IMAG_VIDEO = False
+
+VIDEO_PATH = None
+
+MIN_PIP_LEN = 5
+

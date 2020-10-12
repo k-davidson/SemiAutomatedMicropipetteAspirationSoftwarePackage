@@ -1,20 +1,19 @@
 import cv2
 import time
 
-
-from  SerialCommunication.SoftwareDrivers.gcode_driver import *
+from SerialCommunication.SoftwareDrivers.serial_driver import *
 from SerialCommunication.SoftwareDrivers.serial_driver import *
 
-import config
+from settings import *
 
 
-POSITIONS = [0,5]
+POSITIONS = [0,3]
 
 def repeatabilityExperiment(n):
     errNo = 0
-    
-    ser = initialise_serial(errNo, "/dev/cu.usbmodem14101", 57600)
-    time.sleep(2)
+    time.sleep(1)
+    ser = initialise_serial(errNo, "/dev/cu.usbmodem14201", 57600)
+    time.sleep(1)
 
     if(not ser):
         print("Unable to find serial device\n")
@@ -32,7 +31,7 @@ def repeatabilityExperiment(n):
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             cv2.imshow("Repeatability demo",gray)
             cv2.waitKey(34)
-        segment = [GCodeSegment("G00", POSITIONS[sel]*config.FineMotionConfig["stepsPerMicron"], 10)]
+        segment = [GCodeSegment("G00", POSITIONS[sel]*settings.STEPS_PER_MICRON, 300)]
         sel = 0 if sel else 1
         segment.transmit_sequence(ser, errNo)
 

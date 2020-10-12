@@ -1,9 +1,8 @@
-from .ConfigFiles.serial_config import *
+from .ConfigFiles.config import *
+from .ConfigFiles.settings import *
 import sys
 import serial.tools.list_ports
 import time
-
-
 
 '''
 Libraries:         PYSERIAL: Python serial library
@@ -24,8 +23,9 @@ Arguments           buffer      String to be transmitted
                     ser         Serial object
 Optional Arguments  attempts    Number of attempts to transmit upon failure.
                                 Default value configured in SERIAL.config.
-Return value        0           if the string was transmitted successfully
-                    ...
+Return value        true        if the string was transmitted successfully
+                    none        if unsuccessful transmission
+                    
 '''
 def transmit_serial(errNo, ser, buffer, attempts = TRANSMIT_ATTEMPTS):
     #Iterate over attempts
@@ -60,7 +60,8 @@ Return value        None        Error, check errNo to specify
 def await_conf(errNo, ser, sec = 3, conf_packet = ACK_PACKET):
     time.sleep(0.75)
     #If no acknowledgment packet recieved
-    if not (recvpacket := recieve_serial(errNo, ser, 1)):
+    recvpacket = recieve_serial(errNo, ser, 1)
+    if (not recvpacket):
         print("ERR_CODE 07: No ACK recieved before timeout.")
         errNo = 7
         return None
@@ -284,12 +285,3 @@ Return              state      State to set CTS pin
 '''
 def get_cts(ser):
     return ser.cts
-
-
-'''
-Function            
-Debrief             
-Arguments           
-Optional Arguments  
-Return value                           
-'''

@@ -1,132 +1,106 @@
-import qtpy
-from PyQt5.QtWidgets import *
-from PyQt5.QtGui import *
-from PyQt5.QtCore import *
-from PyQt5.QtSvg import *
-import sys
 import os
 import signal
-import faulthandler
 
-from ComputerVision.image_processing_OS import *
-from UserInterface.SoftwareDrivers.GUI_Driver import *
-from SerialCommunication.serial_os import *
-from Emulator.emulator_os import *
-from multiprocessing import *
-from time import *
-from pty import *
+from ComputerVision.image_processing_OS import initialise_computer_vision
+from UserInterface.SoftwareDrivers.GUI_Driver import guiManagement
+from SerialCommunication.serial_os import initialise_serial_process
+from Emulator.emulator_os import \
+CaptureEmulator, SerialEmulator, initialise_emulation_process
+from multiprocessing import Queue, Event
 
-def image_processing_OS_example(args):
-    faulthandler.enable()
-    
-    emOutQ = Queue()
-    emInQ = Queue()
+def launch_application():
+    """ Launcher entry function. Initialise program wide state and process'.
+    Initialise means of communication between process'. 
+    """
+    # Initialise application context object
+    context = AppContext()
 
-    context = AppContext(args[0])
+    # Initialise emulation command queue (serial emulation)
+    commandQueue = Queue()
+    # Initialise emulation capture queue (capture emulation)
+    captureQueue = Queue()
 
-    EMULATE = True
+    # Initialise capture emulation instance
+    captureEmulator = CaptureEmulator(captureQueue)
+    # Initialise serial emulation instance
+    serialEmulator = SerialEmulator(commandQueue)
 
-    serialEmulator = None
-    captureEmulator = None
+    # Start emulation process
+    context.add_pid(initialise_emulation_process(commandQueue, captureQueue))
+    # Start serial communication process
+    context.add_pid(initialise_serial_process(context, serialEmulator))
+    # Start computer vision process
+    context.add_pid(initialise_computer_vision(context.pixQ, context.posQ,
+                                               context.capSem, captureEmulator))
+    # Start UI process
+    guiManagement(context)
 
-    if(EMULATE):
-        commandQueue = Queue()
-        captureQueue = Queue()
-
-        captureEmulator = CaptureEmulator(captureQueue)
-        serialEmulator = SerialEmulator(commandQueue)
-        context.add_pid(initialise_emulation_process(commandQueue, captureQueue))
-    
-    deviceName = "/dev/cu.usbmodem14201"
-
-    context.add_pid(initialise_serial_process(context, deviceName, serialEmulator))
-    
-    context.add_pid(initialise_computer_vision(context.pixQ, context.posQ, 
-        context.capSem, captureEmulator))
-
-    
-    guiManagement(context, context.posQ)
-    
-    
+    # Await kill process event (when exiting application)
     context.kill.wait()
-    
-    exit(0)
-    
-    '''
-    errNo = 0
-    sleep(5)
-    gCodeCommand1 = GCodeSegment("G00", 200)
-    gCodeCommand2 = SCodeSegment("S00", 0, 10)
-    gCodeSequence = codeSequence([gCodeCommand1, gCodeCommand2])
 
-    while(1):
-        capSem.put(1)
-        #gCodeSequence.transmit_sequence(ser, errNo)
-        sleep(60)
-    '''
-        
+
 class AppContext(object):
-    def __init__(self, configFile):
-        #Distribute images captured via the microscope
+    def __init__(self):
+        """ Initialise Application context. Contains queues distributed
+        throughout the mutli-process program, used in communication.
+        """
+        # Computer vision communicators
+        # Distribute images captured via the microscope
         self.pixQ = Queue()
-
+        # Request image capture from computer vision process
         self.capSem = Queue()
-
-        #
+        # Distribute user input to the computer vision process
         self.posQ = Queue()
 
+        # Serial communication communicators
+        # Distribute G-Code segments to be transmitted
         self.sOut = Queue()
+        # Distribute recieved segments
         self.sIn = Queue()
+        # Distribute human readable serial comms strings to display to the user
+        self.sDisp = Queue()
+        # Semaphore to communicate serial communication completion
         self.sComplete = Queue()
 
+        # Event, triggered when the user exits the GUI
         self.kill = Event()
-        self.synch = Event()
 
+        # List of generated process ID's
         self.pid = []
 
-        self.configFile = configFile
-        
     def add_pid(self, pid):
+        """ Add a process id to the registered process ID's
+
+        Args:
+            pid (int): Identifier of the process to add to process ID's
+        """
         self.pid.append(pid)
 
     def put_comm_success(self, state):
+        """ Add state to the communication success queue
+
+        Args:
+            state (bool): Current state of serial communications
+        """
         self.sComplete.put(state)
 
     def get_comm_success(self):
+        """ Get state of the communication success queue
+
+        Returns:
+            bool: True iff communication is completed successfully. Otherwise
+            false.
+        """
         if(self.sComplete.empty()):
             return None
         else:
             return self.sComplete.get()
 
     def end_program(self):
+        """ End the program by sending signal to exit all registered process'
+        """
         for p in self.pid:
             os.kill(p, signal.SIGKILL)
-            
-    def add_pix(self, idx, img):
-        self.pixQ.put((idx, img))
-
-    def pix_available(self):
-        if(self.pixQ.empty()):
-            return 0
-        return 1
-    
-    def get_pix(self):
-        if(self.pixQ.empty()):
-            return (None, None)
-        return self.pixQ.get()
-
-    def outEmpty(self):
-        return self.sOut.empty()
-    
-    def getOut(self):
-        if(self.sOut.empty()):
-            return None
-        return self.sOut.get()
-
-    def putIn(self, command):
-        self.sIn.put(command)
-        return 0
-
 
 if __name__ == "__main__":
-    image_processing_OS_example(sys.argv)
+    launch_application()

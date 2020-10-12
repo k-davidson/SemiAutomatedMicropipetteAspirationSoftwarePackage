@@ -1,12 +1,16 @@
 from multiprocessing import *
 from multiprocessing.managers import *
-import Emulator.emulator_config as em_config
+from .SoftwareDrivers.ConfigFiles.config import *
 import os
 import numpy as np
 import random
-import config
+from systemInformation import *
+from settings import *
 from math import *
 import time
+
+CELL_MASS = 0.0000000000001
+INTERNAL_RADIUS = 0.000002
 
 class SerialEmulator:
     def __init__(self, commandQueue):
@@ -55,14 +59,14 @@ def emulation_processer(commandQueue, imageQueue):
     toolSel = 0
     initialPDist = 0
 
-    yPipette = [-em_config.pipetteModel['pipetteHeight'], 
-                em_config.pipetteModel['pipetteHeight']]
+    yPipette = [-pipetteModel['pipetteHeight'], 
+                pipetteModel['pipetteHeight']]
     xPipetteTip = 0
     theta = 0
 
-    yOrigin = int(em_config.pipetteModel['initPipetteY'])
-    xOrigin = em_config.pipetteModel['initPipetteX']
-    cellPos = em_config.cellModel['initCellPos']
+    yOrigin = int(pipetteModel['initPipetteY'])
+    xOrigin = pipetteModel['initPipetteX']
+    cellPos = cellModel['initCellPos']
     
 
     cellAcceleration = 0
@@ -107,16 +111,12 @@ def emulation_processer(commandQueue, imageQueue):
                 cellPos[0][1] = yOrigin
             else:
                 cellPos[0][1] += moveY
-            
-            #print("Move x = %.2f, Move y = %.2f\n"%(moveX, moveY))
 
             imageQueue.put(draw_frame(xPipetteTip, yPipette, xOrigin, 
                         yOrigin, cellPos))            
 
             lastUpdateTime = time.time()*1000
-
-            
-                
+    
         if(not commandQueue.empty()):
             command = commandQueue.get()
             commandSections = (command.rstrip()).split(" ")
@@ -147,21 +147,16 @@ def emulation_processer(commandQueue, imageQueue):
 
 def updateCellPosition(xPip, yPip, cellPos, pressure):
     dist = sqrt(pow(xPip - cellPos[0], 2) + pow(yPip - cellPos[1], 2))
-    print("Distance is %.12f pixels\n"%(dist))
 
-    micron = dist/(config.FineMotionConfig["pixelPerMicron"])
-    print("Distance is %.12f microns\n"%(micron))
+    micron = dist/(PIXEL_PER_MICRON)
 
     pressureAtCell = pressure
-    print("Pressure is %.2f and at cell %.12f"%(pressure, pressureAtCell))
 
-    forceOnCell = pi*pow(config.FinePressureConfig['internalRadius'], 2)*pressureAtCell
-    print("Internal radius of %.12f force on cell %.12f"%(config.FinePressureConfig['internalRadius'], forceOnCell))
+    forceOnCell = pi*pow(INTERNAL_RADIUS, 2)*pressureAtCell
 
-    acceleration = forceOnCell/config.FinePressureConfig['cellMass']
-    print("Acceleration is %.12f"%(acceleration))
+    acceleration = forceOnCell/CELL_MASS
 
-    return acceleration*config.FineMotionConfig["pixelPerMicron"], dist
+    return acceleration*PIXEL_PER_MICRON, dist
 
 def cell_to_pipette_theta(xPip, yPip, cellPos):
     if(abs(cellPos[0] - xPip) < 3):
@@ -174,9 +169,9 @@ def cell_to_pipette_theta(xPip, yPip, cellPos):
 
 def set_pipette_position(toolSel, xPip, yPip, pos, xOrigin, yOrigin):
 
-        ptom = config.FineMotionConfig["pixelPerMicron"]
-        sperm = config.FineMotionConfig["stepsPerMicron"]
-        microstep = config.FineMotionConfig["microStepping"]
+        ptom = PIXEL_PER_MICRON
+        sperm = STEPS_PER_MICRON
+        microstep = MICROSTEPPING
 
         microns = pos/(sperm*microstep)
         print("Microns of %.2f\n"%(microns))
@@ -190,13 +185,13 @@ def set_pipette_position(toolSel, xPip, yPip, pos, xOrigin, yOrigin):
             xOrigin += pos
         else:
             yOrigin += pos
-        print("%d\n", config.FineMotionConfig['pixelPerMicron'])
+        print("%d\n", PIXEL_PER_MICRON)
         print("X-pos = %d, Y-pos = [%d,%d]"%(xPip, yPip[0], yPip[1]))
         return xOrigin, yOrigin 
 
 def draw_frame(xPip, yPip, xOrigin, yOrigin, cellPos):
-        image = np.zeros((em_config.emulatorModel['imgWidth'],
-                            em_config.emulatorModel['imgHeight'],3), 
+        image = np.zeros((emulatorModel['imgWidth'],
+                            emulatorModel['imgHeight'],3), 
                             dtype = np.uint8)
 
         for x in range(0, xPip + xOrigin):
@@ -212,8 +207,8 @@ def draw_frame(xPip, yPip, xOrigin, yOrigin, cellPos):
     
 
         for n,cell in enumerate(cellPos):
-            standardCellDim = em_config.cellModel['standardCellDim'][n]
-            aspiratedCellDim = em_config.cellModel['aspiratedCellDim'][n]
+            standardCellDim = cellModel['standardCellDim'][n]
+            aspiratedCellDim = cellModel['aspiratedCellDim'][n]
             if((cell[0] + standardCellDim[0]/2 <= xOrigin) and (abs(yOrigin - cell[1]) < 10)):
                 cellDim = aspiratedCellDim
             else:

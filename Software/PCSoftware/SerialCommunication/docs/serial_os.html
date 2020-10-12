@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta http-equiv="content-type" content="text/html;charset=utf-8">
+  <title>serial_os.py</title>
+  <link rel="stylesheet" href="pycco.css">
+</head>
+<body>
+<div id='container'>
+  <div id="background"></div>
+  <div class='section'>
+    <div class='docs'><h1>serial_os.py</h1></div>
+  </div>
+  <div class='clearall'>
+  <div class='section' id='section-0'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-0'>#</a>
+      </div>
+      
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">.SoftwareDrivers.gcode_driver</span> <span class="kn">import</span> <span class="o">*</span>
+<span class="kn">from</span> <span class="nn">.SoftwareDrivers.ConfigFiles.settings</span> <span class="kn">import</span> <span class="o">*</span>
+<span class="kn">from</span> <span class="nn">Emulator.emulator_os</span> <span class="kn">import</span> <span class="o">*</span>
+<span class="kn">from</span> <span class="nn">multiprocessing</span> <span class="kn">import</span> <span class="o">*</span>
+<span class="kn">import</span> <span class="nn">time</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-1'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-1'>#</a>
+      </div>
+      
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="k">def</span> <span class="nf">initialise_serial_process</span><span class="p">(</span><span class="n">context</span><span class="p">,</span> <span class="n">emulate</span><span class="p">):</span>
+    <span class="n">serialProcess</span> <span class="o">=</span> <span class="n">Process</span><span class="p">(</span><span class="n">target</span> <span class="o">=</span> <span class="n">serial_comm_process</span><span class="p">,</span> <span class="n">args</span> <span class="o">=</span><span class="p">[</span><span class="n">context</span><span class="p">,</span> <span class="n">SERIAL_PORT</span><span class="p">,</span> <span class="n">emulate</span><span class="p">])</span>
+    <span class="n">serialProcess</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+
+    <span class="k">return</span> <span class="n">serialProcess</span><span class="o">.</span><span class="n">pid</span>
+
+
+<span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">Function        serial_comm_process</span>
+<span class="sd">Debrief         Manages sending and recieving of serial communications</span>
+<span class="sd">Arguments       SOut (Queue) Queue of G-Code Sequences to transmit</span>
+<span class="sd">                SIn (Queue)  Queue to put recieved command</span>
+<span class="sd">                ser (Serial) Serial object to transmit/recv from</span>
+<span class="sd">&#39;&#39;&#39;</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-2'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-2'>#</a>
+      </div>
+      
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="k">def</span> <span class="nf">serial_comm_process</span><span class="p">(</span><span class="n">context</span><span class="p">,</span> <span class="n">deviceName</span><span class="p">,</span> <span class="n">emulate</span><span class="p">):</span>
+    <span class="n">errNo</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">if</span><span class="p">(</span><span class="n">SERIAL_EMULATOR</span><span class="p">):</span>
+        <span class="n">ser</span> <span class="o">=</span> <span class="n">emulate</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">ser</span> <span class="o">=</span> <span class="n">initialise_serial</span><span class="p">(</span><span class="n">errNo</span><span class="p">,</span> <span class="n">deviceName</span><span class="p">,</span> <span class="n">BAUDRATE</span><span class="p">)</span>
+
+    <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+    <span class="k">while</span><span class="p">(</span><span class="mi">1</span><span class="p">):</span>
+        <span class="k">if</span><span class="p">(</span><span class="n">ser</span><span class="p">):</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-3'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-3'>#</a>
+      </div>
+      <p>Prioritise transmission, check if anything to transmit</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>            <span class="k">while</span><span class="p">(</span><span class="ow">not</span><span class="p">(</span><span class="n">context</span><span class="o">.</span><span class="n">outEmpty</span><span class="p">())):</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-4'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-4'>#</a>
+      </div>
+      <p>Attempt to transmit sequence</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>                <span class="n">sequence</span> <span class="o">=</span> <span class="n">context</span><span class="o">.</span><span class="n">getOut</span><span class="p">()</span>
+                <span class="k">if</span> <span class="ow">not</span><span class="p">(</span><span class="n">sequence</span><span class="o">.</span><span class="n">transmit_sequence</span><span class="p">(</span><span class="n">ser</span><span class="p">,</span> <span class="n">errNo</span><span class="p">,</span> <span class="n">transmitDisplay</span> <span class="o">=</span> <span class="n">context</span><span class="o">.</span><span class="n">sDisp</span><span class="p">)):</span>
+                    <span class="n">context</span><span class="o">.</span><span class="n">put_comm_success</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">context</span><span class="o">.</span><span class="n">put_comm_success</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-5'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-5'>#</a>
+      </div>
+      <p>Check if anything to recieve</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>            <span class="n">command</span> <span class="o">=</span> <span class="n">recieve_serial</span><span class="p">(</span><span class="n">errNo</span><span class="p">,</span> <span class="n">ser</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+            <span class="k">if</span><span class="p">(</span><span class="n">command</span><span class="p">):</span>
+                <span class="n">context</span><span class="o">.</span><span class="n">putIn</span><span class="p">(</span><span class="n">command</span><span class="p">)</span>
+
+</pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+</div>
+</body>

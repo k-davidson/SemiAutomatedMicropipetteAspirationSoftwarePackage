@@ -1,69 +1,91 @@
 from multiprocessing import *
-from .image_processing_driver import *
-import time
-from Emulator.emulator_os import CaptureEmulator
-
-path  = "/Users/kelbiedavidson/Desktop/ThesisUQ/Micropipette Acculation Thesis/Software/PCSoftware/ComputerVision/SampleImages/"
+from .SoftwareDrivers.image_processing_driver import *
+from .SoftwareDrivers.ConfigFiles.settings import *
 
 def initialise_computer_vision(pixQ, posQ, capSem, emulation):
+    """ Initialise the Computer Vision process
+
+    Args:
+        pixQ (Queue): Queue to transfer observed information
+        posQ (Queue): Queue to transfer user selection information
+        capSem (Queue): Queue used as semaphore to request observed information
+        emulation (bool): True iff emulator is used.
+
+    Returns:
+        int: Process ID for the computer vision process
+    """
+    
     imageProcess = Process(target = imageProcesser, args=(pixQ, posQ, capSem, emulation))
     imageProcess.start()
 
-    #Should never get here
     return imageProcess.pid
 
 def imageProcesser(pixQ, posQ, capSem, emulation):
-    if(not emulation):
-        cap = cv2.VideoCapture(0)
-    else:
-        cap = emulation
+    """ Process loop for processing computer vision content.
 
-    frameCount = 0
+    Args:
+        pixQ (Queue): Queue to transfer observed information
+        posQ (Queue): Queue to transfer user selection information
+        capSem (Queue): Queue used as semaphore to request observed information
+        emulation (bool): True iff emulator is used.
+    """
 
-    cell = None
+    # Default value initialisation
+    using_video = False
+    frame_count = 0
     
-    #Create config consts for each
-    dim = [10,10]
-    row = 1
-    column = 1
-    currArea = sampleArea(dim)
-    #time.sleep(1)
-    frameCount = 0
+    # If emulator flag is true, use the emulator
+    if(IMAG_EMULATOR):
+        cap = emulation
+    
+    # Otherwise, if using video file load the video as the capture
+    elif((IMAG_VIDEO) and (VIDEO_PATH != None)):
+        split_path = VIDEO_PATH.split(".")
+        if((split_path[-1] == "mp4") or (split_path[-1] == "avi")):
+            cap = cv2.VideoCapture(VIDEO_PATH)
+            using_video = True
+        else:
+            cap = cv2.VideoCapture(0)
+    
+    # Otherwise, default to video capture 0 for feed
+    else:
+        cap = cv2.VideoCapture(0)
+    
+    # Initialise instance of a tracker manager
+    track_manager = trackerManager()
 
     while(1):
-        '''
-        if frameCount == cap.get(cv2.CAP_PROP_FRAME_COUNT):
-            frameCount = 0
-            cap = cv2.VideoCapture(path + "vid3.mp4")
-        '''
         
+        # If using video and reached the last frame, reset the video
+        if (using_video) and (frame_count == cap.get(cv2.CAP_PROP_FRAME_COUNT)):
+            frame_count = 0
+            cap = cv2.VideoCapture(VIDEO_PATH)
+        
+        # If an image is requested
         if not capSem.empty():
-            auto, sensitivity = capSem.get()
-            while(1):
+            sensitivity = capSem.get()
+            
+            # Attempt to read a frame from the capture
+            ret = False
+            for attempts in range(5):
                 ret, frame = cap.read()
                 if(ret):
                     break
-
-            #frame = cv2.imread(path + "fail4.png")
-            #frame = cv2.imread(path + "%d,%d"%(2,2) + ".jpg")
-
-            frameCount += 1
-            currArea.update_img(frame, auto, sensitivity)
-            width, height, channel = frame.shape
             
-            '''
-            column = 1 if column + 1 > 3 else column + 1
-            row = row + 1 if column == 1 else row
-            row = 1 if row > 4 else row
-            '''
-            
-            if not ret:
-                print("Error reading")
-                continue
+            # If a video is used, count the frame capture
+            if(using_video):
+                frame_count += 1
+                
+            # Update the trackers for the new frame
+            track_manager.update(frame, sensitivity)
 
-            pixQ.put(currArea.get_image_info())
-                #(sampleArea.get_index(), sampleArea.display_cell([], ALL = True)))
+            # Communicate new observed info the the GUI
+            pixQ.put(track_manager.get_image_info())
+            
+            # Clear all single frame states
+            track_manager.clear_frame_states()
         
+        # If the user has requested a cell track
         if not posQ.empty():
             sel, position = posQ.get()
-            currArea.init_track_at(sel, position)
+            track_manager.init_cell_track_at(position)
