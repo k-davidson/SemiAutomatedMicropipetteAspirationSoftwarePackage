@@ -1,5 +1,8 @@
 #!/bin/bash
+
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd)"
-python3 $DIR/application_OS.py
+va=$(python3 $DIR/installer.py $DIR 2>&1)
+echo $va
 pkill Python
 echo Python process killed
+exit

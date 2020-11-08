@@ -1,6 +1,6 @@
-SERIAL_EMULATOR = False
+SERIAL_EMULATOR = True
 
-SERIAL_PORT = "/dev/cu.usbmodem14201"
+SERIAL_PORT = "/dev/cu.Bluetooth-Incoming-Port"
 
 BAUDRATE = 57600
 

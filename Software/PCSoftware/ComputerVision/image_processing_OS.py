@@ -32,7 +32,9 @@ def imageProcesser(pixQ, posQ, capSem, emulation):
 
     # Default value initialisation
     using_video = False
+    using_img = False
     frame_count = 0
+    img = None
     
     # If emulator flag is true, use the emulator
     if(IMAG_EMULATOR):
@@ -44,6 +46,9 @@ def imageProcesser(pixQ, posQ, capSem, emulation):
         if((split_path[-1] == "mp4") or (split_path[-1] == "avi")):
             cap = cv2.VideoCapture(VIDEO_PATH)
             using_video = True
+        elif((split_path[-1] == "jpg") or (split_path[-1] == "png")):
+            img = cv2.imread(VIDEO_PATH, cv2.IMREAD_COLOR)
+            using_img = True
         else:
             cap = cv2.VideoCapture(0)
     
@@ -68,10 +73,14 @@ def imageProcesser(pixQ, posQ, capSem, emulation):
             # Attempt to read a frame from the capture
             ret = False
             for attempts in range(5):
-                ret, frame = cap.read()
-                if(ret):
+                if (not using_img):
+                    ret, frame = cap.read()
+                    if(ret):
+                        break
+                else:
+                    frame = img
                     break
-            
+                
             # If a video is used, count the frame capture
             if(using_video):
                 frame_count += 1

@@ -31,8 +31,6 @@ class SerialEmulator:
         return
     
     def write(self, transmitted):
-        #print("Emulator >> Recieved: %s"%(transmitted.decode()))
-
         self.recievedPacket = True
         self.commandQueue.put(transmitted.decode())
         return 1
@@ -66,8 +64,11 @@ def emulation_processer(commandQueue, imageQueue):
 
     yOrigin = int(pipetteModel['initPipetteY'])
     xOrigin = pipetteModel['initPipetteX']
+
     cellPos = cellModel['initCellPos']
     
+    absPosX = 0
+    absPosY = 0
 
     cellAcceleration = 0
     cellVelocity = 0
@@ -122,9 +123,24 @@ def emulation_processer(commandQueue, imageQueue):
             commandSections = (command.rstrip()).split(" ")
         
             if(commandSections[1] == "G00"):
+                pos = int(commandSections[2])
+
+                if toolSel == 0:
+                    pos -= absPosX
+                
+                else:
+                    pos -= absPosY
+
                 xOrigin, yOrigin = set_pipette_position(toolSel, 
-                xPipetteTip, yPipette, int(commandSections[2]),
+                xPipetteTip, yPipette, int(pos),
                 xOrigin, yOrigin)
+
+                if toolSel == 0:
+                    absPosX = pos
+                
+                else:
+                    absPosY = pos
+
                 imageQueue.put(draw_frame(xPipetteTip, yPipette, xOrigin, yOrigin, cellPos))
 
             if(commandSections[1] == "T"):
@@ -138,7 +154,6 @@ def emulation_processer(commandQueue, imageQueue):
                     cellAcceleration, initialPDist = updateCellPosition(xOrigin, 
                     yOrigin, cellPos[0], (float(commandSections[2]) - pipettePressure))
                 pipettePressure = float(commandSections[2])
-                print("Acceleration is %.2f"%(cellAcceleration))
                 
                 if(commandSections[2] == 1):
                     cellAcceleration = -cellAcceleration
@@ -146,15 +161,21 @@ def emulation_processer(commandQueue, imageQueue):
 
 
 def updateCellPosition(xPip, yPip, cellPos, pressure):
+    
+    
     dist = sqrt(pow(xPip - cellPos[0], 2) + pow(yPip - cellPos[1], 2))
 
     micron = dist/(PIXEL_PER_MICRON)
 
-    pressureAtCell = pressure
+    # Calculate volume from desired pressure
+    crossSection = pi * pow((COLUMN_DIAMETER/2), 2)
+
+
+    pressureAtCell = (MIN_VOLUME_INCREMENT * pow(10, -6) * pressure)/(crossSection * FLUID_DENSITY * pow(10, 1.5) * GRAVITY)
 
     forceOnCell = pi*pow(INTERNAL_RADIUS, 2)*pressureAtCell
 
-    acceleration = forceOnCell/CELL_MASS
+    acceleration = forceOnCell/(CELL_MASS)
 
     return acceleration*PIXEL_PER_MICRON, dist
 
@@ -169,15 +190,13 @@ def cell_to_pipette_theta(xPip, yPip, cellPos):
 
 def set_pipette_position(toolSel, xPip, yPip, pos, xOrigin, yOrigin):
 
-        ptom = PIXEL_PER_MICRON
+        ptom = 14.4
         sperm = STEPS_PER_MICRON
         microstep = MICROSTEPPING
 
         microns = pos/(sperm*microstep)
-        print("Microns of %.2f\n"%(microns))
 
         pixels = microns*ptom
-        print("Pixels of %.2f\n"%(pixels))
 
         pos = int((pos*ptom)/(sperm*microstep)) #Replace 0.5 with scale
 
@@ -185,8 +204,7 @@ def set_pipette_position(toolSel, xPip, yPip, pos, xOrigin, yOrigin):
             xOrigin += pos
         else:
             yOrigin += pos
-        print("%d\n", PIXEL_PER_MICRON)
-        print("X-pos = %d, Y-pos = [%d,%d]"%(xPip, yPip[0], yPip[1]))
+
         return xOrigin, yOrigin 
 
 def draw_frame(xPip, yPip, xOrigin, yOrigin, cellPos):

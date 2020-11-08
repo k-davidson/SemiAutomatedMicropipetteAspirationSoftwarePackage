@@ -23,7 +23,6 @@ def serial_comm_process(errNo, ser, serialOut, serialIn):
         if(command := recieve_serial(errNo, ser, 1)):
             serialIn.put(command)
 
-
 def serialProcessExample():
     serialOut = Queue()
     serialIn = Queue()
@@ -36,10 +35,5 @@ def serialProcessExample():
     #Attempt to transmit sequence
     transmit_serial(errNo, ser, "VOL 30\n")
     
-
-
-
-
-
 if __name__ == "__main__":
     serialProcessExample()

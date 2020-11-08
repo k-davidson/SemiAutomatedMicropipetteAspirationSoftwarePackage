@@ -1,4 +1,4 @@
-IMAG_EMULATOR = False
+IMAG_EMULATOR = True
 
 IMAG_VIDEO = False
 

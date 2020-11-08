@@ -24,8 +24,6 @@ def serial_comm_process(context, deviceName, emulate):
     if(SERIAL_EMULATOR):
         ser = emulate
     else:
-        print("Device called:%s"%(deviceName))
-        print("Baud:%d"%(BAUDRATE))
         ser = initialise_serial(errNo, deviceName, BAUDRATE)
 
     time.sleep(1)

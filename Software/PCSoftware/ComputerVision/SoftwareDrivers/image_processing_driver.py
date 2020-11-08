@@ -36,8 +36,6 @@ class pipetteTracker(basicTracker):
                     self.set_track_position(updatedPosition)
 
 
-                
-
 class cellTracker(MOSSETracker):
     """ 
     Subclass of MOSSETracker containing logic relevant to tracking of
@@ -111,7 +109,7 @@ class aspTracker(MOSSETracker):
             # Cell is not being aspirated
             return False
 
-    def update_track(self, img, pipRange):
+    def update_track(self, img, pipRange, mu_grad, mu_offset):
         """ 
         Update the MOSSE tracker to identify the objects position within the 
         incoming frame.
@@ -126,27 +124,42 @@ class aspTracker(MOSSETracker):
 
         # If currently aspirating
         if state == asp_track_state.ACTIVE_ASP_TRACK:
+            # Convert the frame to grayscale and display grayscale frame
+            src = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+
             # Find first edge iterating from the Pipette tip to base
-            backwardAspCheck = self.update_basic_track(img, 10, 
+            backwardAspCheck = self.asp_iter(src, 
+            [int(pipRange[0] + pipRange[2]/2) - 10, 10], 
+            -1, 5, mu_grad, mu_offset, 10)
+            
+            '''
+            backwardAspCheck = self.update_basic_track(img, 30, 
                 int(pipRange[0] + pipRange[2]/2) - 10, -1)
+            '''
 
             # Find first edge iterating from the Pipette base to tip
-            forwardAspCheck = self.update_basic_track(img, 10, 5, 1)
+            forwardAspCheck = self.asp_iter(src, 
+            [10, int(pipRange[0] + pipRange[2]/2) - 10], 
+            1, 5, mu_grad, mu_offset, 10)
+            '''
+            forwardAspCheck = self.update_basic_track(img, 30, 5, 1)
+            '''
 
             # If no edge was found in a direction: No cell was found
             if (backwardAspCheck is None) or (forwardAspCheck is None):
                 self.set_track_position(pipRange)
 
             # If edges found were relatively close: Currently aspirating
-            elif abs(forwardAspCheck[0] - backwardAspCheck[0]) < 20:
-                self.set_track_position(backwardAspCheck)
+            elif abs(forwardAspCheck - backwardAspCheck) < 30:
+                self.set_track_position([backwardAspCheck, pipRange[1], 0, pipRange[3]])
             
             # If two distinct edges were found: The cell is fully aspirated
             else:
                 # Initialise MOSSE tracker for the fully aspirated cell
                 self.create_mosse_track(img, 
-                (forwardAspCheck[0] - 20, pipRange[1],
-                abs(pipRange[0] - forwardAspCheck[0] + 10), 
+                (forwardAspCheck - 20, pipRange[1],
+                abs(pipRange[0] - forwardAspCheck + 10), 
                 abs(pipRange[3])))
                 # Update the tracker state
                 self.set_state(asp_track_state.ACTIVE_FULL_ASP_TRACK)
@@ -154,6 +167,36 @@ class aspTracker(MOSSETracker):
         # If fully aspirated
         if state == asp_track_state.ACTIVE_FULL_ASP_TRACK:
             self.update_mosse_track(img)
+
+
+    def asp_iter(self, src, x_range, step, comp_dist, mu_grad, mu_offset, thresh):
+        
+        # Start X-iterations at initial condition
+        iteration = x_range[0]
+
+        # Iterate horizontally in the X-range to find egde
+        for x_coord in range(x_range[0], x_range[1], step):
+            curr_pixel = int(src[int(x_coord * mu_grad + mu_offset), x_coord])
+            comp_pixel = int(src[int((x_coord + step*comp_dist) * mu_grad + mu_offset),
+                                    x_coord + step*comp_dist])
+
+            # If difference meets the threshold, this is the edge
+            if thresh < abs(curr_pixel - comp_pixel):
+                iteration = int(x_coord + step*comp_dist/2)
+                break
+
+            # Step iteration
+            iteration += step
+
+        if(step > 0):
+            if(iteration >= x_range[1]):
+                return None
+        else:
+            if(iteration <= x_range[1]):
+                return None
+
+        # Return position of edge
+        return iteration
 
 class trackerManager():
     """ 
@@ -200,11 +243,13 @@ class trackerManager():
         # Create a copy of the current image
         displayImage = np.copy(self.img)
 
+        
         # If a Pipette Tracker is active
         if self.pipetteTracker.active_track():
             # Add the Pipette tracker to the display image
             displayImage = self.display_track(displayImage, 
             self.pipetteTracker.get_track_range(), "Pipette", (128,128,255))
+        
 
         # If a Cell Tracker is active
         if self.cellTracker.active_track():
@@ -294,7 +339,9 @@ class trackerManager():
         # If currently aspirating or fully aspirated
         if (trackState == asp_track_state.ACTIVE_ASP_TRACK) or (trackState == asp_track_state.ACTIVE_FULL_ASP_TRACK):
             # Update the Aspiration tracker
-            self.aspTracker.update_track(self.img, self.pipetteTracker.get_track_range())
+            self.aspTracker.update_track(self.img, 
+            self.pipetteTracker.get_track_range(), self.pipetteTracker.mu_grad,
+            self.pipetteTracker.mu_offset)
 
         # If the tracker has reached the left image border
         if ((trackState != basic_track_state.NO_ACTIVE_TRACK) and 

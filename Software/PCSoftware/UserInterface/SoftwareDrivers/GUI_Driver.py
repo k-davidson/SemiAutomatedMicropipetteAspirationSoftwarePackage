@@ -84,6 +84,9 @@ class ControlWidget(QWidget):
             rateRange (List): Max/Min value for the rate command.
         """
 
+        self.synch_value = 0
+        self.positionCommand = None
+
         # Initialise position command spinbox and labels
         if positionText and commandRange:
             self.positionLabel = QLabel(positionText)
@@ -133,12 +136,14 @@ class ControlWidget(QWidget):
         Args:
             increment (int): Value to increment the position command by
         """
-        self.positionCommand.setValue(self.positionCommand.value() + increment)
+        if(self.positionCommand is not None):
+            self.positionCommand.setValue(self.synch_value + increment)
 
     def synch_segment(self):
         """ Return of synch segment. Overriden by inhereted classes.
         """
-        pass
+        if(self.positionCommand is not None):
+            self.synch_value = self.positionCommand.value()
 
 class stepperWidget(ControlWidget):
     """ Stepper widget inhereting from the ControlWidget class. Provides
@@ -166,11 +171,11 @@ class stepperWidget(ControlWidget):
         Returns:
             String: Transmittable string representing widget state.
         """
-
+        ControlWidget.synch_segment(self)
         # Only transmit if the position command has updated
         if(self.positionCommand.getUpdated()):
             # Transmit G00 command
-            segment = GCodeSegment("G00", int((self.positionCommand.value()) * 0.85
+            segment = GCodeSegment("G00", int((self.positionCommand.value()) 
             * STEPS_PER_MICRON * MICROSTEPPING), 
             rate=int(self.rateCommand.value()))
 
@@ -202,6 +207,7 @@ class pumpWidget(ControlWidget):
         Returns:
             String: Transmittable string representing widget state.
         """
+        ControlWidget.synch_segment(self)
         if(self.positionCommand.getUpdated()):
             # Calculate volume from desired pressure
             crossSection = pi * pow((COLUMN_DIAMETER/2), 2)
@@ -227,7 +233,7 @@ class feedWidget(ControlWidget):
     """
 
     # Cell or location selection signal, location and dimensions in frame
-    select = pyqtSignal(bool, QPoint, QPoint, int, int)
+    select = pyqtSignal(bool, QPoint, QPoint, float, float)
 
     def __init__(self, widget, idx):
         """ Initialise video feed states and layout
@@ -375,6 +381,9 @@ class feedWidget(ControlWidget):
         # Set the label pixmap to current pixmap
         self.imageFeedLabel.setPixmap(self.pix)
 
+    def synch_segment(self):
+        pass
+    
     def pressEvent(self, event):
         """ Override of video feed press event interacting with image label
 
@@ -552,7 +561,7 @@ class resultsWidget(ControlWidget):
         # Initialise chart view
         self.dataView = QChartView(self.dataModel)
         self.dataView.setMinimumHeight(400)
-        self.dataView.setMinimumWidth(300)
+        self.dataView.setMinimumWidth(50)
         self.layout.addWidget(self.dataView)
 
         # Initialise primary/secondary axis titles
@@ -1163,19 +1172,21 @@ class AppController(QWidget):
         if(abs(self.systemInfo.cell_to_pipette()) < 2):
             approachCellMutex.unlock()
             return
-        cellPos = self.systemInfo.observed_cell_position()
+        cellPos = self.systemInfo.observed_cell_position(pToM)
 
         diffPipette = self.systemInfo.desired_to_observed_pipette([cellPos[0] - cellPos[2],
                                            cellPos[1] + cellPos[3]/2,
                                            cellPos[0] - cellPos[2],
-                                           cellPos[1] + cellPos[3]/2])
-        self.model.update_positions("S0", [0, 1], diffPipette)
+                                           cellPos[1] + cellPos[3]/2], pToM)
+        print(cellPos)
+        print(diffPipette)
+        self.model.update_positions("S0", [0, 1], [diffPipette[0], diffPipette[1]])
         self.synchronise_state()
         approachCellMutex.unlock()
 
     def aspirate_cell(self):
         cellStationaryMutex.lock()
-        if((self.systemInfo.active_cell())):
+        if((self.systemInfo.cellTracker.active_track())):
             if (2 < self.systemInfo.cell_to_pipette()):
                 errorPopup("Cell must be closer to aspirate." +
                            "Position the pipette within 2um of the cell.")
@@ -1186,7 +1197,7 @@ class AppController(QWidget):
             cellStationaryMutex.unlock()
             return
 
-        self.pumpWidgets.increment_pressures([-0.25], [0])
+        self.pumpWidgets.increment_pressures([-2], [0])
         self.synchronise_state()
 
         cellStationaryMutex.unlock()
@@ -1205,24 +1216,21 @@ class AppController(QWidget):
             t.wait()
 
     def cellSelection(self, cell, point, dim, scale, config):
-        pixelXPosition = point.x()/self.scale
-        pixelYPosition = point.y()/self.scale
+        pixelXPosition = point.x()/scale
+        pixelYPosition = point.y()/scale
 
-        pixelXDim = dim.x()/self.scale
-        pixelYDim = dim.y()/self.scale
+        pixelXDim = dim.x()/scale
+        pixelYDim = dim.y()/scale
 
         trueXPosition = (pixelXPosition)/(config)
         trueYPosition = (pixelYPosition)/(config)
 
+
         if((not pixelXDim) and (not pixelYDim)):
-            self.context.sDisp.put("Selected point [%d,%d] pixels, [%.2f,%.2f] um"
-                                   % (pixelXPosition, pixelYPosition,
-                                       trueXPosition, trueYPosition))
-            self.model.update_positions("S0", [0, 1],
-                                        self.systemInfo.desired_to_observed_pipette([trueXPosition,
-                                               trueYPosition,
-                                               trueXPosition,
-                                               trueYPosition]))
+            diff = self.systemInfo.desired_to_observed_pipette([trueXPosition, trueYPosition,
+                                               0, 0], config)
+            for n,i in enumerate(diff):
+                self.model.update_positions("S0", [0, 1], [diff[0], diff[1]])
 
         else:
             self.context.sDisp.put("Initialise Cell at [%d,%d] to [%d, %d] pixels"
@@ -1329,11 +1337,22 @@ class controlWorker(QObject):
         self.cellTracker = cellTracker
         self.pipetteTracker = pipetteTracker
         self.aspTracker = aspTracker
+
+        cellMoving = False
+        aspMoving = False
+
         if(not pendingComms):
+
+            if(self.cellTracker.active_track() and
+            self.cellTracker.moving_track()):
+                cellMoving = True
+                
+
+            if (self.aspTracker.active_track() and 
+            self.aspTracker.moving_track()):
+                aspMoving = True
             
-            if(self.waitingCellStationary and 
-            (not cellTracker.moving_track() and 
-            self.aspTracker.moving_track())):
+            if(self.waitingCellStationary and not aspMoving and not cellMoving):
                 cellStationaryCondition.wakeAll()
 
             if(self.waitingPipStationary and
@@ -1363,7 +1382,7 @@ class AppModel(object):
         widget = self.idx[containerID]
 
         for n, wID in enumerate(widgetIDList):
-            widget.get_child_widget(wID).set_value(posList[n])
+            widget.get_child_widget(wID).increment_value(posList[n])
 
 
 class Application(QApplication):

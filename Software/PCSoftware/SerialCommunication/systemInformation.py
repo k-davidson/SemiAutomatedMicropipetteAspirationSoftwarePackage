@@ -39,6 +39,9 @@ class basicTracker():
         self.movingTrack = True
         self.lostTrack = False
 
+        self.mu_grad = 0
+        self.mu_offset = 0
+
         self.trackState = basic_track_state.NO_ACTIVE_TRACK
 
     def active_track(self):
@@ -133,6 +136,17 @@ class basicTracker():
             self.set_moving_track(False)
 
     def update_basic_track(self, img, thresh, startPos, step):
+        """ Update Basic tracker position.
+
+        Args:
+            img (numpy.ndarray): 3 by 2D array representing RGB image
+            thresh (int): Threshold required for an edge between pixels
+            startPos (int): Starting position for tracker search
+            step (int): Step taken per one iteration
+
+        Returns:
+            list: Updated Basic Tracker position. None if no position is found.
+        """
         # Convert the frame to grayscale and display grayscale frame
         gray_frame = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
@@ -141,7 +155,6 @@ class basicTracker():
 
         # Apply the Hough transform to the frame (finding prominent lines)
         hough_lines = cv2.HoughLinesP(cannyFrame,1,np.pi/180, 50, None, 50, 5)
-        houghLineFrame = np.empty(gray_frame.shape)
 
         if hough_lines is None:
             return
@@ -151,8 +164,6 @@ class basicTracker():
         for i in range(len(hough_lines)):
             # Display the line in the hough frame
             line = hough_lines[i][0]
-            cv2.line(houghLineFrame, (line[0], line[1]), (line[2], line[3]), 
-            (255,255,255), 2)
 
             if(line[2] - line[0] == 0):
                 continue
@@ -163,7 +174,6 @@ class basicTracker():
                 lineAngles[rho] = lineAngles[rho] + 1
             else:
                 lineAngles[rho] = 1
-
 
         # Find the most frequent rho in the image
         maxFrequency = -1
@@ -199,28 +209,39 @@ class basicTracker():
             if (None in min_line) or (minY < min_line[1]):
                 min_line = line
 
+        if (None in max_line) or (None in min_line):
+            return
+
         # Create line functions that represent the top and bottom pipette edges
         mu_grad = max_freq_angle
         max_offset = max_line[3] - max_line[2] * mu_grad
         min_offset = min_line[3] - min_line[2] * mu_grad
         mu_offset = int((max_offset + min_offset)/2)
 
-        pipetteEdgeLinesFrame = gray_frame.copy()
-        cv2.line(pipetteEdgeLinesFrame, (max_line[0], max_line[1]), (max_line[2], max_line[3]), (255,255,255), 2)
-        cv2.line(pipetteEdgeLinesFrame, (min_line[0], min_line[1]), (min_line[2], min_line[3]), (255,255,255), 2)
+        self.mu_grad = mu_grad
+        self.mu_offset = mu_offset
 
         # Iterate horizontally to find the pipette tip
-        tipX = startPos
+        tipX = None
+        x = startPos
         COMP_DIST = 5
         maxThresh = -1
-        for x in range(startPos, np.size(img, 1) - COMP_DIST):
-            y = x * mu_grad + mu_offset
-            if (y < 0) or (img.shape[0] <= y):
+
+        while ((x + COMP_DIST) > 0) and ((x + COMP_DIST) < img.shape[1]):
+            x1 = x
+            x2 = x + COMP_DIST
+            y1 = x1 * mu_grad + mu_offset
+            y2 = x2 * mu_grad + mu_offset
+            if (y1 < 0) or (img.shape[0] <= y1):
+                x = x + step
                 continue
 
-            currentPixel = int(gray_frame[int(x * mu_grad + mu_offset), x])
-            compPixel = int(gray_frame[int((x + COMP_DIST) * mu_grad + mu_offset), 
-                        x + COMP_DIST])
+            if (y2 < 0) or (img.shape[0] <= y2):
+                x = x + step
+                continue
+
+            currentPixel = int(gray_frame[int(y1), x1])
+            compPixel = int(gray_frame[int(y2), x2])
             
             # If the edge is sufficient, this is the pipette tip
             if(maxThresh < abs(currentPixel - compPixel)):
@@ -229,181 +250,11 @@ class basicTracker():
 
                 if(thresh < maxThresh):
                     break
-
-            # Every 10th frame, display the current position
-            if(not (x % 10)):
-                cv2.line(pipetteEdgeLinesFrame, 
-                (int(x - 10), int((x - 10) * mu_grad + mu_offset)),
-                (int(x), int(x * mu_grad + mu_offset)), (0,0,0), 2)
-
-        # Add a line to show the iterations
-        cv2.line(pipetteEdgeLinesFrame,
-        (0, int(0 * mu_grad + mu_offset)), (int(tipX), int(tipX * mu_grad + mu_offset)),
-        (0,0,0), 2) 
-
-        # Add a line to the frame where the pipette is detected
-        cv2.line(pipetteEdgeLinesFrame,
-        (int(tipX), int(tipX * mu_grad + min_offset)), 
-        (int(tipX), int(tipX * mu_grad + max_offset)),
-        (0,0,0), 2) 
-    
+            x = x + step
         
+        if(tipX is None):
+            return 
         return [tipX, int(tipX * mu_grad + min_offset), 0, max_offset - min_offset]
-
-
-        """ Update Basic tracker position.
-
-        Args:
-            img (numpy.ndarray): 3 by 2D array representing RGB image
-            thresh (int): Threshold required for an edge between pixels
-            startPos (int): Starting position for tracker search
-            step (int): Step taken per one iteration
-
-        Returns:
-            list: Updated Basic Tracker position. None if no position is found.
-        """
-       
-        """
-        # Convert BGR image to Grayscale
-        grayscaleImg = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        imgH, imgW, channels = img.shape
-        # Apply Canny edge detection of Grayscale image
-        edges = cv2.Canny(grayscaleImg, 20, 60,apertureSize = 3)
-        # Apply Hough transform to find prominent lines
-        lines = cv2.HoughLinesP(edges,1,np.pi/180, 30, 30, 50, 5)
-
-        # Initialise the maximum/minimum lines in frame
-        minLine = [-1, -1, imgH, -1]
-        minLineTheta = 0
-        maxLine = [-1, -1, 0, -1]
-        maxLineTheta = 0
-
-        # Verify lines exist from the Hough transform
-        if(lines is None):
-            return None
-
-        # Iterate over the lines, noting the frequency of rho
-        lineAngles = dict()
-
-        for i in range(len(lines)):
-            line = lines[i][0]
-
-            if((line[2] - line[0]) == 0):
-                continue
-
-            rho = str(int((line[3] - line[1])/(line[2] - line[0])))
-            if rho in lineAngles.keys():
-                lineAngles[rho] = lineAngles[rho] + 1
-            else:
-                lineAngles[rho] = 1
-
-        # Find the most frequent rho in the image
-        maxFrequency = -1
-        max_freq_angle = 0
-        for key in lineAngles.keys():
-            if(maxFrequency < lineAngles[key]):
-                maxFrequency = lineAngles[key]
-                max_freq_angle = int(key)
-
-        # Iterate over the lines found, finding max/min lines
-        for i in range(len(lines)):
-            l = lines[i][0]
-
-            if(line[2] - line[0] == 0):
-                continue
-
-            rho = int((line[3] - line[1])/(line[2] - line[0]))
-
-            if((line[2] - line[0]) == 0):
-                continue
-
-            
-            # Ensure the line matches the most frequent angle
-            if rho != max_freq_angle:
-                continue
-            
-            
-            # If this line is greater than max line, update
-            if(maxLine[2] < l[1]):
-                maxLine = [l[0], l[2], l[1], l[3]]
-                
-            # If this line is less than mine line, update
-            if(l[1] < minLine[2]):
-                minLine = [l[0], l[2], l[1], l[3]]
-
-        # Ensure at least 2 lines exist
-        if(len(lines) < 2):
-            return None
-
-        # Ensure max line is not too close to min line
-        if((maxLine[0] - maxLine[1]) == 0):
-            return None
-        
-        # Initialise the max and min line functions
-        maxGrad = (maxLine[2] - maxLine[3])/(maxLine[0] - maxLine[1])
-        maxOffset = (maxLine[2] - maxGrad*maxLine[0])
-
-        if((minLine[0] - minLine[1]) == 0):
-            return None
-
-        minGrad = (minLine[2] - minLine[3])/(minLine[0] - minLine[1])
-        minOffset = (minLine[2] - minGrad*minLine[0])
-
-        grad = (maxGrad + minGrad)/2
-        offset = (minOffset + maxOffset)/2
-
-        if (grad != 0):
-            tipGrad = -1/grad
-        else:
-            tipGrad = None
-
-        tipOffset = None
-        tipX = None
-
-        c1 = [int(startPos*grad + offset), startPos]
-        c2 = [int((startPos+3)*grad + offset), startPos+3]
-
-        # Iterate horizontally in direction of step
-        while((c2[1] < imgW) and (c1[1] < imgW) 
-        and (c2[0] < imgH) and (c1[0] < imgH)):
-            
-            # Ensure within the bounds of the framr
-            if((c1[0] < 0) or (c1[1] < 0) or (c2[0]) < 0 or (c2[1] < 0)):
-                break
-            # If comparison is greater than the threshold
-            if(thresh < abs(int(grayscaleImg[c1[0], c1[1]]) - 
-            int(grayscaleImg[c2[0], c2[1]]))):
-                if(tipGrad != None):
-                    tipOffset = c1[0] - tipGrad*c1[1]
-                tipX = int((c1[1] + c2[1])/2)
-                break
-            
-            # Increment both current and comparison pixel by step
-            c1[1] += step
-            c1[0] = int(c1[1]*grad + offset)
-            c2[1] += step
-            c2[0] = int(c2[1]*grad + offset)
-        if(tipX == None):
-            return None
-
-        # Y position for the X destination
-        y1 = int(maxGrad*tipX + maxOffset)
-        y2 = int(minGrad*tipX + minOffset)
-
-        # Return the destination X position found
-        if(tipGrad != None):
-            tipX = int((y1 - tipOffset)/(tipGrad))
-            y2 = y2
-            width = abs(int(((y2 - tipOffset)/tipGrad) - 
-            ((y1 - tipOffset)/tipGrad)))
-            height = abs(y2 - y1)
-        else:
-            tipX = tipX
-            y2 = y2
-            width = 0
-            height = abs(y2-y1)
-        return [tipX, y2, 0, abs(y2-y1)]
-    """
 
     def kill_track(self):
         """ Kill the current track, clearning position and state.
@@ -533,6 +384,8 @@ class MOSSETracker(basicTracker):
         Returns:
             bool: True iff the MOSSE tracker was successfully updated.
         """
+        if(self.MOSSETrack is None):
+            return
         # Attempt to update the tracker
         success, cellBox = self.MOSSETrack.update(img)
         # If not successful, clear position
@@ -588,7 +441,7 @@ class systemInformation():
         self.cellTracker = cellTracker
         self.aspTracker = aspTracker
 
-    def observed_pipette_position(self):
+    def observed_pipette_position(self, factor):
         """ Compute the observed pipette position for the given config.
 
         Returns:
@@ -598,25 +451,26 @@ class systemInformation():
         if(self.pipetteTracker.get_state()):
             # Convert the pixel position to micron position
             position = self.pipetteTracker.get_track_range()
-            return [((position[0])/(PIXEL_PER_MICRON)), 
-                    ((position[1])/(PIXEL_PER_MICRON)),
-                    ((position[2])/(PIXEL_PER_MICRON)), 
-                    ((position[3])/(PIXEL_PER_MICRON))]
+            return [((position[0])/(factor)), 
+                    ((position[1])/(factor)),
+                    ((position[2])/(factor)), 
+                    ((position[3])/(factor))]
 
-    def observed_cell_position(self):
+    def observed_cell_position(self, pToM):
         """ Compute the observed cell position for a given config.
 
         Returns:
             List: Position of the cell tracker instance.
         """
         # If active tracker
+        print("This is ptom %.2f"%(pToM))
         if(self.cellTracker.get_state()):
             # Convert the pixel position to micron position
             position = self.cellTracker.get_track_range()
-            return [((position[0])/(PIXEL_PER_MICRON)), 
-                    ((position[1])/(PIXEL_PER_MICRON)),
-                    ((position[2])/(PIXEL_PER_MICRON)), 
-                    ((position[3])/(PIXEL_PER_MICRON))]
+            return [((position[0])/(pToM)), 
+                    ((position[1])/(pToM)),
+                    ((position[2])/(pToM)), 
+                    ((position[3])/(pToM))]
 
     def observed_asp_position(self):
         """ Compute the observed aspiration position for a given config.
@@ -631,7 +485,7 @@ class systemInformation():
             return [(abs(position[0]))/(PIXEL_PER_MICRON),
                     (abs(position[1]))/(PIXEL_PER_MICRON)]
 
-    def desired_to_observed_pipette(self, desired):
+    def desired_to_observed_pipette(self, desired, factor):
         """ Compute the difference between the observed and desired 
         pipette position resulting from user input.
 
@@ -643,13 +497,16 @@ class systemInformation():
             pipette position.
         """
         difference = []
-        observed = self.observed_pipette_position()
+        print("Factor is %.12f"%(factor))
+        observed = self.observed_pipette_position(factor)
 
         # Compute the difference for all positions
         for n,point in enumerate(desired):
+            print("Clicked %.2f, Observed %.2f"%(point, observed[n]))
             difference.append(point - observed[n])
-
-        return difference
+        print("\n\n\n\n")
+        return [(desired[0] + desired[2]/2) - (observed[0] + observed[2]/2),
+                (desired[1] + desired[3]/2) - (observed[1] + observed[3]/2)]
 
     def cell_to_pipette(self):
         """ Compute the difference between the observed pipette and observed
@@ -688,7 +545,7 @@ class systemInformation():
         Returns:
             enum: Return state of the pipette tracker.
         """
-        return pipetteTracker.active_track()
+        return self.pipetteTracker.active_track()
 
     def active_cell(self):
         """ Getter method for the active state of the cell tracker instance.

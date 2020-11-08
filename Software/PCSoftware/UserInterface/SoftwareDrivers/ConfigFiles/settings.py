@@ -1,2 +1,2 @@
-IMG_SCALE = 0.25
+IMG_SCALE = 0.5
 
