@@ -17,9 +17,11 @@ from settings import *
 from .ConfigFiles.config import *
 from .ConfigFiles.settings import *
 
+# Mutex set when cell awaiting stationary cell
 cellStationaryMutex = QMutex()
 cellStationaryCondition = QWaitCondition()
 
+# Mutex set when approaching cell
 approachCellMutex = QMutex()
 approachCellCondition = QWaitCondition()
 
@@ -749,9 +751,11 @@ class containerObj(QWidget):
     def initialise_container(self):
         """ Initialise layout of container. Add tab per widget.
         """
+        # Initialise layout
         self.layout = QGridLayout()
         self.setLayout(self.layout)
 
+        # Initialise tab container
         self.tabWidget = QTabWidget()
 
         self.widgetContainer = []
@@ -985,35 +989,48 @@ def cvtopixmap(img, dim, scale):
 
 
 class synchObj(QWidget):
-    """[summary]
-
-    Args:
-        QWidget ([type]): [description]
+    """ State synchronisation widget class
     """
     def __init__(self, synchFunc, approachCellFunc, latchFunc, resetPFunc):
+        """ 
+        Initialise synch object widget state
+
+        Args:
+            synchFunc (func*): Function for synchronising state
+            approachCellFunc (func*): Function for approaching cell
+            latchFunc (func*): Function for latching cell
+            resetPFunc (func*): Function to reset system
+        """
         QWidget.__init__(self)
 
+        # Initialise layout
         self.layout = QGridLayout()
         self.setLayout(self.layout)
 
+        # Add control tab
         self.container = QTabWidget()
         self.system1Tab = QWidget()
         self.container.addTab(self.system1Tab, "System 1 Control")
 
+        # Create synchronise button
         self.synch = QPushButton("Synchronise", self)
         self.synch.clicked.connect(synchFunc)
         self.synch.setSizePolicy(QSizePolicy(
             QSizePolicy.Fixed, QSizePolicy.Fixed))
 
+        # Create approach cell button 
         self.approachCell = QPushButton("Approach Cell", self)
         self.approachCell.clicked.connect(approachCellFunc)
 
+        # Create aspirate cell button
         self.latch = QPushButton("Aspirate Cell", self)
         self.latch.clicked.connect(latchFunc)
 
+        # Create reset pressure button
         self.resetPressure = QPushButton("Reset Pressure", self)
         self.resetPressure.clicked.connect(resetPFunc)
 
+        # Add all widgets to layout
         self.layout.addWidget(self.synch, 0, 0)
         self.layout.addWidget(self.approachCell, 1, 0)
         self.layout.addWidget(self.latch, 2, 0)
@@ -1022,55 +1039,118 @@ class synchObj(QWidget):
         self.system1Tab.setLayout(self.layout)
 
     def get_container(self):
+        """
+        Get container for synchronise widget.
+
+        Returns:
+            QTabWidget: Container of synchronise widget
+        """
         return self.container
 
 
 class AppView(QMainWindow):
+    """
+    View manager, in charge of displaying content to the user. All updates
+    to the system are communicated via the Model to display information
+    to the user.
+    """
     def __init__(self):
+        """
+        Initialise View manager
+        """
         QMainWindow.__init__(self)
+        
+        # Create layout
         self.layout = QGridLayout()
         self.layout.setSpacing(0)
 
+        # Add main widget
         self.mainWidget = QWidget()
 
         self.feedContainer = None
 
+        # Set widget layout
         self.mainWidget.setLayout(self.layout)
         self.setCentralWidget(self.mainWidget)
 
     def add_widgets(self, widgets, pos, span):
+        """
+        Add list of widgets to the View, with set positions and span.
+
+        Args:
+            widgets (QWidget[]): List of QWidgets to be added to the view.
+            pos (int[]): List of positions to add widgets at.
+            span (int[]): List of spans for widget columns/rows
+        """
+        # Iterate over provided widgets
         for n, a in enumerate(widgets):
+            # Add each widget to the layout
             self.layout.addWidget(
                 a, pos[n][0], pos[n][1], span[n][0], span[n][1])
 
     def set_feed_container(self, feedContainer):
+        """
+        Set widget for video feed.
+
+        Args:
+            feedContainer (QPixMap): Video feed widget.
+        """
         self.feedContainer = feedContainer
 
     def update_view(self, img, scale):
+        """
+        Update feed widget view.
+
+        Args:
+            img (QPixMap): Image to update displayed to the user.
+            scale (int): Scaling of the image.
+        """
         self.feedContainer.update_feed(0, img, scale)
 
 
 class AppController(QWidget):
-    updateSystem = pyqtSignal(np.ndarray, basicTracker, basicTracker, basicTracker)
+    """
+    Control manager, controlling changes in state depending on the users 
+    input and current state of the system.
+    """
+    # Signal to update of the system in the tracker thread
+    updateSystem = pyqtSignal(np.ndarray, basicTracker, 
+        basicTracker, basicTracker)
+    # Signal to appraoch the cell
     approachCellSignal = pyqtSignal()
+    # Signal to control system
     controlSignal = pyqtSignal()
 
     def __init__(self, model, view, context):
+        """
+        Initialise state of the Control manager.
+
+        Args:
+            model (AppModel): Model to recieve input from.
+            view (AppView): View to output change in display to.
+            context (Context): App context, containing all Queues and Semaphores
+        """
         QWidget.__init__(self)
 
+        # Initialise system information
         self.systemInfo = systemInformation()
 
+        # Initialise Pipette position
         self.initConfig = False
-
         self.originX = 0
         self.originXPixel = 0
         self.originY = 0
         self.originYPixel = 0
 
+        # Initialise model and view
         self.model = model
         self.view = view
+        
+        # List of threads to initialise
         self.threads = []
         self.pendingComms = False
+        
+        # Initialise Stepper objects
         StepperContainer1 = StepperObj(
             2, ['Stepper-X', 'Stepper-Y'], "S0", [0, 1])
         PumpContainer1 = pumpObj(1, ['Syringe-1 Pump'], "P0", [0])
@@ -1078,25 +1158,34 @@ class AppController(QWidget):
                                    self.approachCellSignal.emit,
                                    self.controlSignal.emit,
                                    self.reset_pressure)
-        CommunicationContainer1 = communicationObj(1, ['Serial Communication Transcript'],
-                                                   "C0", [0])
+        # Initialise communication objects
+        CommunicationContainer1 = communicationObj(1, 
+            ['Serial Communication Transcript'], "C0", [0])
 
+        # Initialise feed widget object
         FeedContainer1 = feedObj(1, ['Microscope-1'], "M0", [0])
         FeedContainer1.get_child_widget(0).select.connect(self.cellSelection)
 
+        # Initialise result widget object
         ResultContainer1 = resultsObj(
             2, ['Aspiration Results', 'Velocity Results'], ["R1", "R2"], [0, 1])
 
         self.scale = IMG_SCALE
+        
+        # Update system for video feed
         self.updateSystem.connect(self.update)
-        VidFeed1 = videoFeed(context.pixQ, context.capSem,
-                             FeedContainer1.get_child_widget(0), self.updateSystem)
-
+        VidFeed1 = videoFeed(
+            context.pixQ, context.capSem, 
+            FeedContainer1.get_child_widget(0), self.updateSystem)
+        
+        # Initialise Video Feed
         VidFeed1.start()
         self.threads.append(VidFeed1)
 
+        # Set feed widget to display
         self.view.set_feed_container(FeedContainer1)
 
+        # Initialise widget containers
         self.stepperWidgets = StepperContainer1
         self.pumpWidgets = PumpContainer1
         self.synchWidgets = SynchContainer1
@@ -1113,11 +1202,11 @@ class AppController(QWidget):
             ["Time (seconds)", "Position (\u03BCm)"])
         self.dataWidgets.get_child_widget(1).set_alpha(0.25)
 
-        
-
+        # Initialise Control thread
         self.controlThread = QThread()
         self.controlProcessor = controlWorker(
             context.sDisp, CommunicationContainer1.get_child_widget(0))
+        # Initialise Control processing thread
         self.controlProcessor.moveToThread(self.controlThread)
         self.controlProcessor.latchingSignal.connect(self.aspirate_cell)
         self.controlProcessor.approachingSignal.connect(self.approach_stepping)
@@ -1125,12 +1214,15 @@ class AppController(QWidget):
         self.approachCellSignal.connect(self.controlProcessor.approach_cell)
         self.controlThread.start()
 
+        # Add all widgets to the view manager
         self.view.add_widgets([StepperContainer1, PumpContainer1,
                                FeedContainer1, ResultContainer1,
                                SynchContainer1.get_container(),
                                CommunicationContainer1],
                               [(0, 0), (0, 2), (1, 0), (1, 3), (0, 4), [0, 6]],
                               [(1, 2), (1, 2), (1, 3), (1, 3), (1, 2), (3, 2)])
+        
+        # Add widgets to model
         self.model.add_widgets(
             [StepperContainer1, PumpContainer1, FeedContainer1])
         self.view.show()
@@ -1138,72 +1230,117 @@ class AppController(QWidget):
         self.context = context
 
     def reset_pressure(self):
+        """
+        Reset system pressure in child pressure widget
+        """
         self.pumpWidgets.get_child_widget(0).set_value(0)
         self.synchronise_state()
 
     def update(self, img, pipetteTracker, cellTracker, aspTracker):
+        """
+        Update tracker states.
 
+        Args:
+            img (nd.array): Updated image to display in video feed.
+            pipetteTracker (basicTracker): Updated pipette tracker
+            cellTracker (basicTracker): Update cell tracker
+            aspTracker (basicTracker): Update aspiration tracker
+        """
+
+        # If the Cell tracker has been lost
         if(cellTracker.lost_track()):
             errorPopup("Cell tracker lost its target.")
 
+        # Set trackers in system information
         self.systemInfo.set_trackers(pipetteTracker, cellTracker, aspTracker)
         
+        # Update trackers in control processing
         self.controlProcessor.systemUpdateSignal.emit(
             pipetteTracker, cellTracker, aspTracker, self.pendingComms)
 
+        # Update view widget
         self.view.update_view(img, self.scale)
         self.update_data()
 
+        # Set communication state
         if(self.context.get_comm_success() is not None):
             self.pendingComms = False
 
     def approach_stepping(self):
+        """
+        Approach micropipette tip tracker to cell tracker.
+        """
+        # Lock access to variables
         approachCellMutex.lock()
+        
+        # Ensure an active cell tracker exists
         if(not self.systemInfo.active_cell()):
             errorPopup("No active Cell tracker.")
             approachCellMutex.unlock()
             return
+        
+        # Ensure an active pipette tracker exists
         if(not self.systemInfo.active_pipette()):
             errorPopup("No active Pipette tracker.")
             approachCellMutex.unlock()
             return
+        
+        # Ensure trackers are greater than threshold range
         pToM = self.feedWidgets.pixel_to_micron(0)
-
         if(abs(self.systemInfo.cell_to_pipette()) < 2):
             approachCellMutex.unlock()
             return
+        
+        # Get cell position
         cellPos = self.systemInfo.observed_cell_position(pToM)
+        # Get difference between cell and micrpipette position
+        diffPipette = self.systemInfo.desired_to_observed_pipette(
+            [cellPos[0] - cellPos[2],
+            cellPos[1] + cellPos[3]/2,
+            cellPos[0] - cellPos[2],
+            cellPos[1] + cellPos[3]/2], pToM)
 
-        diffPipette = self.systemInfo.desired_to_observed_pipette([cellPos[0] - cellPos[2],
-                                           cellPos[1] + cellPos[3]/2,
-                                           cellPos[0] - cellPos[2],
-                                           cellPos[1] + cellPos[3]/2], pToM)
-        print(cellPos)
-        print(diffPipette)
-        self.model.update_positions("S0", [0, 1], [diffPipette[0], diffPipette[1]])
+        # Update model stepper position
+        self.model.update_positions("S0", 
+            [0, 1], [diffPipette[0], diffPipette[1]])
         self.synchronise_state()
         approachCellMutex.unlock()
 
+
     def aspirate_cell(self):
+        """
+        Aspirate cell tracker into micropipette tip.
+        """
+        # Lock access to variable states
         cellStationaryMutex.lock()
+        
+        # Ensure active cell tracker exists in range
         if((self.systemInfo.cellTracker.active_track())):
             if (2 < self.systemInfo.cell_to_pipette()):
                 errorPopup("Cell must be closer to aspirate." +
                            "Position the pipette within 2um of the cell.")
                 cellStationaryMutex.unlock()
                 return
+        # Ensure active cell exists
         elif(not self.systemInfo.active_asp_cell()):
             errorPopup("No active Cell tracker to aspirate")
             cellStationaryMutex.unlock()
             return
 
+        # Increment pressure for aspiration
         self.pumpWidgets.increment_pressures([-2], [0])
         self.synchronise_state()
-
         cellStationaryMutex.unlock()
 
+
     def synchronise_state(self):
+        """
+        Syncronise system state (position and pressure)
+        """
+        # Get synch sequence from synch widget
         synchSequence = self.model.synchWidgets()
+        
+        # Ensure synch sequence is not empty 
         if(not synchSequence.isEmpty()):
             self.context.sOut.put(synchSequence)
             self.pendingComms = True
@@ -1211,88 +1348,138 @@ class AppController(QWidget):
             errorPopup("No change in position/pressure state!\n")
 
     def terminate_threads(self):
+        """
+        Terminate all active threads.
+        """
         for t in self.threads:
             t.abort = True
             t.wait()
 
     def cellSelection(self, cell, point, dim, scale, config):
+        """
+        Select cell from user input on video feed widget.
+
+        Args:
+            point (int[]): [x,y] position of initialised cell.
+            dim (int[]): [w,h] dimensions of cell tracker to initialise
+            scale (float): Image scaling factor in display.
+            config (float): Pixels per micron configuration
+        """
+
+        # Get pixel tracker position from scale
         pixelXPosition = point.x()/scale
         pixelYPosition = point.y()/scale
 
+        # Get pixel dimensions from scale
         pixelXDim = dim.x()/scale
         pixelYDim = dim.y()/scale
 
         trueXPosition = (pixelXPosition)/(config)
         trueYPosition = (pixelYPosition)/(config)
 
-
+        # If no dimensions (i.e just a click)
         if((not pixelXDim) and (not pixelYDim)):
-            diff = self.systemInfo.desired_to_observed_pipette([trueXPosition, trueYPosition,
-                                               0, 0], config)
+            diff = self.systemInfo.desired_to_observed_pipette(
+                [trueXPosition, trueYPosition, 0, 0], config)
+            # Set stepp positions based on click
             for n,i in enumerate(diff):
                 self.model.update_positions("S0", [0, 1], [diff[0], diff[1]])
 
+        # Click and drag
         else:
-            self.context.sDisp.put("Initialise Cell at [%d,%d] to [%d, %d] pixels"
-                                   % (pixelXPosition, pixelYPosition,
-                                       pixelXPosition, pixelYDim))
+            # Initialise cell tracker
+            self.context.sDisp.put(
+                "Initialise Cell at [%d,%d] to [%d, %d] pixels"
+                % (pixelXPosition, pixelYPosition, pixelXPosition, pixelYDim))
 
             self.context.posQ.put((cell, [(pixelXPosition, pixelYPosition),
                                           (pixelXDim, pixelYDim)]))
 
     def update_data(self):
+        """
+        Update aspiration data in results widget.
+        """
+        # Get aspiration cell state
         aspCellState = self.systemInfo.active_asp_cell()
 
+        # No active aspiration cell tracker
         if(aspCellState == basic_track_state.NO_ACTIVE_TRACK):
             return
-
+        # Active tracker undergoing aspiration
         if(aspCellState == asp_track_state.ACTIVE_ASP_TRACK):
             dataWidget = self.dataWidgets.get_child_widget(0)
+        # Full cell aspiration tracker
         elif(aspCellState == asp_track_state.ACTIVE_FULL_ASP_TRACK):
             dataWidget = self.dataWidgets.get_child_widget(1)
 
+        # Calculate difference between pipette tip and aspirated tracker
         aspCellPosition = self.systemInfo.asp_to_pipette()
 
         if(aspCellPosition is None):
             return
-
+        # Get current pressure
         pressureWidget = self.pumpWidgets.get_child_widget(0)
+        
+        # Update results widget
         if(aspCellState == asp_track_state.ACTIVE_ASP_TRACK):
             dataWidget.add_data(
                 [abs(pressureWidget.get_value()), aspCellPosition])
         else:
-            # Change this to be dependent in the change in postiion (velocity)
-            dataWidget.add_data(
-                [time.time(), aspCellPosition])
+            dataWidget.add_data([time.time(), aspCellPosition])
 
 
 class controlWorker(QObject):
+    """
+    Control worker thread for dislaying communication
+    """
+    # Signal requesting latching of cell
     latchingSignal = pyqtSignal()
+    # Signal requesting approaching cell
     approachingSignal = pyqtSignal()
-    systemUpdateSignal = pyqtSignal(basicTracker, basicTracker, basicTracker, bool)
+    # Signal requesting system update
+    systemUpdateSignal = pyqtSignal(basicTracker, 
+            basicTracker, basicTracker, bool)
 
     def __init__(self, sDispQueue, commWidget):
+        """
+        Initialise control worker state.
+
+        Args:
+            sDispQueue (Queue): Serial communication to display
+            commWidget (Queue): Communication to emit via Serial
+        """
         QObject.__init__(self)
+
+        # Initialise System information
         self.systemInfo = None
         self.systemUpdateSignal.connect(self.update_system_info)
         self.waitingCellStationary = False
         self.waitingPipStationary = False
 
+        # Initialise tracker states
         self.cellTracker = None
         self.pipetteTracker = None
         self.aspTracker = None
 
+        # Initialise Queues
         self.sDispQueue = sDispQueue
         self.commWidget = commWidget
 
+
     def approach_cell(self):
+        """
+        Approach cell with micropipette tip tracker.
+        """
         global approachCellCondition
         global approachCellMutex
 
+        # Iterate over approaching cell until achieved or cell tracker lost
         for i in range(10):
             self.approachingSignal.emit()
-            if(not self.cellTracker.active_track() and not self.aspTracker.active_track()):
+            if(not self.cellTracker.active_track() 
+                and not self.aspTracker.active_track()):
                 return
+            # Emit control
             approachCellMutex.lock()
             self.waitingPipStationary = True
             approachCellCondition.wait(approachCellMutex)
@@ -1300,17 +1487,22 @@ class controlWorker(QObject):
             approachCellMutex.unlock()
 
     def update_control(self):
+        """
+        Update control in the system.
+        """
         global cellStationaryCondition
         global cellStationaryMutex
 
         for i in range(10):
             self.latchingSignal.emit()
 
+            # Ensure active track exists
             if((i != 0) and (not self.pipetteTracker.active_track() or
                              not (self.aspTracker.active_track()
                                   or self.cellTracker.active_track()))):
                 return
 
+            # If active cell tracker
             if(self.cellTracker.active_track()):
                 cellPos = self.cellTracker.get_track_center()
                 pipPos = self.pipetteTracker.get_track_center()
@@ -1324,6 +1516,7 @@ class controlWorker(QObject):
             elif(not self.aspTracker.active_track()):
                 return
 
+            # Lock access to variables
             cellStationaryMutex.lock()
             self.waitingCellStationary = True
             cellStationaryCondition.wait(cellStationaryMutex)
@@ -1332,7 +1525,16 @@ class controlWorker(QObject):
             cellStationaryMutex.unlock()
 
 
-    def update_system_info(self, pipetteTracker, cellTracker, aspTracker, pendingComms):
+    def update_system_info(self, pipetteTracker, cellTracker, 
+                aspTracker, pendingComms):
+        """ Update system information for trackers and pending communications.
+
+        Args:
+            pipetteTracker (basicTracker): Updated state of the pipette tracker
+            cellTracker (basicTracker): Updated state of the cell tracker
+            aspTracker (basicTracker): Updated state of the aspiration tracker
+            pendingComms (bool): True iff communications currently pending
+        """
         global cellStationaryCondition
         self.cellTracker = cellTracker
         self.pipetteTracker = pipetteTracker
@@ -1341,76 +1543,142 @@ class controlWorker(QObject):
         cellMoving = False
         aspMoving = False
 
+        # Ensure no pending communications
         if(not pendingComms):
 
+            # If cell moving
             if(self.cellTracker.active_track() and
             self.cellTracker.moving_track()):
                 cellMoving = True
                 
-
+            # If asp cell moving
             if (self.aspTracker.active_track() and 
             self.aspTracker.moving_track()):
                 aspMoving = True
             
+            # If waiting on stationary and no movement (cell and asp)
             if(self.waitingCellStationary and not aspMoving and not cellMoving):
                 cellStationaryCondition.wakeAll()
 
+            # If waiting on stationary pipette and no movement
             if(self.waitingPipStationary and
             not pipetteTracker.moving_track()):
                 approachCellCondition.wakeAll()
 
+        # If serial display queue is not empty
         if(not self.sDispQueue.empty()):
             self.commWidget.append(self.sDispQueue.get())
 
 
 class AppModel(object):
+    """
+    Initialise App Model manager, communicating input to the controller.
+    """
     def __init__(self):
+        """
+        Initialise model widget indexes.
+        """
         self.idx = {}
 
     def add_widgets(self, widgets):
+        """
+        Add number of widgets to the model.
+
+        Args:
+            widgets (QWidget[]): List of QWidgets to add to the model.
+        """
         for a in widgets:
             self.idx[a.get_idx()] = a
 
     def synchWidgets(self):
+        """
+        Get each widget state and synchronisation serial command.
+
+        Returns:
+            CodeSequence: Sequence of codes to tranmist to synch state.
+        """
         sequence = []
+        # Iterate over widgets, getting synchronisation state
         for key, value in self.idx.items():
             sequence = sequence + (value.synch_segment())
 
+        # Return sequence of synch state codes
         return codeSequence(sequence)
 
     def update_positions(self, containerID, widgetIDList, posList):
-        widget = self.idx[containerID]
+        """
+        Update a set number  of widget positions.
 
+        Args:
+            containerID (int): Container ID for updating the state
+            widgetIDList (int[]): Widgets IDs for updating the state
+            posList (int): Position to update the widget to
+        """
+        # Get widget container
+        widget = self.idx[containerID]
+        # Iterate over widgets 
         for n, wID in enumerate(widgetIDList):
             widget.get_child_widget(wID).increment_value(posList[n])
 
 
 class Application(QApplication):
+    """
+    Initialise Application start GUI, based on QApplication behaviour.
+    """
+    
     def __init__(self, context):
+        """
+        Initialise application state and MVC framework.
+
+        Args:
+            context (Context): Application context for communication
+        """
         super(Application, self).__init__([])
         self.context = context
 
+        # Initialise application model
         self.model = AppModel()
+        # Initialise applicarion view
         self.view = AppView()
+        # Initialise application controller
         self.controller = AppController(self.model, self.view, context)
 
     def end_program(self):
+        """
+        Communicate user requesting end of program to all process'
+        """
         self.controller.terminate_threads()
         self.context.end_program()
         exit(0)
 
 
 def guiManagement(context):
+    """
+    Initialise GUI Management process
+
+    Args:
+        context (Context): Application context for communication
+    """
+    # Initialise application object
     app = Application(context)
+    # Connect qutting application to end program through context
     app.aboutToQuit.connect(app.end_program)
+    # Set application style
     app.setStyleSheet(styleSheet.toString())
     sys.exit(app.exec_())
 
 def errorPopup(msg):
+    """
+    Generate an error popup to display to the user.
+
+    Args:
+        msg (String): A message to display within error popup
+    """
+    # Create messae box
     error = QMessageBox()
     error.setWindowTitle("An error occured")
     error.setText("Uh oh...")
     error.setStandardButtons(QMessageBox.Ok)
+    # Set message box text
     error.setInformativeText(msg)
-
     x = error.exec_()

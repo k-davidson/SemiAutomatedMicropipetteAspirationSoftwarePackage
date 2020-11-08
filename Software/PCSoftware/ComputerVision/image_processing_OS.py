@@ -15,7 +15,8 @@ def initialise_computer_vision(pixQ, posQ, capSem, emulation):
         int: Process ID for the computer vision process
     """
     
-    imageProcess = Process(target = imageProcesser, args=(pixQ, posQ, capSem, emulation))
+    imageProcess = Process(target = imageProcesser, 
+        args=(pixQ, posQ, capSem, emulation))
     imageProcess.start()
 
     return imageProcess.pid

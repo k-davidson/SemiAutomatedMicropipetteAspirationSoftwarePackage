@@ -360,6 +360,7 @@ if __name__ == "__main__":
               "the computer vision algorithm identifying cell aspiration.\n" +
               "NOTE: The first frame is used to identify the micropipette.\n" +
               "Hence, no aspiration must occur until the second frame.\n\n" +
-              "Program usage: python aspirationIdentification.py <filepath> <startFrame> <display>\n")
+              "Program usage: python aspirationIdentification.py <filepath> " +
+              "<startFrame> <display>\n")
     else:
         aspiration_identification(sys.argv[1], sys.argv[2], sys.argv[3])
